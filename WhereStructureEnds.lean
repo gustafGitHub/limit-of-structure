@@ -1,6 +1,6 @@
 /-
 ================================================================================
-  Where Structure Ends — Lean 4 formalization (first draft)
+  Where Structure Ends — Lean 4 formalization (machine-checked core)
   Companion to: G. Ullman, "Where Structure Ends" (Zenodo 2026).
   Concept DOI: 10.5281/zenodo.17159948   Version DOI: 10.5281/zenodo.18773650
 ================================================================================
@@ -23,20 +23,36 @@
         perspectives that do not descend to the quotient, hence survive any
         collapse of structure.
 
+  SCOPE OF THE FORMALIZATION
+  --------------------------
+  This file works at the quotient/setoid level: admissible transformations are
+  the equivalence relation `≈` and descent is the universal property of the
+  quotient. The genuine group-action case (§2') is recovered as the orbit
+  relation `orbitRel G Obs`. The paper's broader categorical / groupoidal
+  language is represented here only by the induced equivalence relation on
+  perspectives; a full `CategoryTheory.Groupoid` treatment is deliberately out
+  of scope. Likewise the degeneration `Collapses` (§3) is a toy *endpoint*
+  condition (globally constant invariant signature), NOT the full order-
+  theoretic `S_min` of §6/§7. See CLAUDE_CODE_INSTRUCTIONS.md §9 for these TODOs.
+
   WHAT IS *NOT* A THEOREM (and must not be coded as one)
   ------------------------------------------------------
   Primitivism about phenomenality and the Ontological Closure Principle are
   the paper's METAPHYSICAL PREMISES (the paper itself says "a metaphysical
   stance, not a theorem"). They live in `namespace OE.Metaphysics` as explicit
-  hypotheses / definitions, NEVER as global `axiom`s. The verified core above
-  therefore stays free of extra-logical commitments; expect
-  `#print axioms` on the core theorems to return only
-  `[propext, Classical.choice, Quot.sound]` (Classical only for the `by_cases`
-  dichotomy; the rest are constructive modulo `Quot.sound`).
+  hypotheses / definitions, NEVER as global `axiom`s. The verified core
+  therefore stays free of extra-logical commitments. Verified axiom profile
+  (see the audit block at the end of the file): the core descent/no-go theorems
+  return only `[Quot.sound]` and several are fully axiom-free; the classical
+  corollaries and the group realization carry `[propext, Classical.choice,
+  Quot.sound]` (classicality entering via `by_cases`/`by_contra`); and the
+  metaphysical conditionals `separates_of_phenomenalIsFiberLocal` and
+  `phenomenal_not_structural` are axiom-free.
 
-  STATUS: first draft, NOT yet `lake build`-verified in a Mathlib project.
-  See CLAUDE_CODE_INSTRUCTIONS.md for the build steps and the "VERIFY" list of
-  Mathlib lemma names that may need adjustment.
+  STATUS: Builds cleanly under Lean 4.30.0 / Mathlib `v4.30.0`
+  (commit c5ea00351c28e24afc9f0f84379aa41082b1188f), with no
+  `sorry`/`admit`/`axiom`/`unsafe`. Build: `lake exe cache get && lake build`.
+  See CLAUDE_CODE_INSTRUCTIONS.md for the repair log and full axiom audit.
 -/
 
 import Mathlib.GroupTheory.GroupAction.Basic
@@ -236,22 +252,16 @@ open MulAction
 
 variable {G : Type*} [Group G] {Obs : Type*} [MulAction G Obs] {X : Type*}
 
--- The orbit relation as the operative `Setoid` (admissible transformations =
--- the group action). Made a local instance so the schematic results above
--- specialize to it. The `synthInstance.checkSynthOrder` guard is needed only
--- because `G` is recovered from the ambient `MulAction G Obs` rather than from
--- the target `Setoid Obs`; within this section that action is unique, so
--- resolution is unambiguous.
-set_option synthInstance.checkSynthOrder false in
-local instance instOrbitSetoid : Setoid Obs := orbitRel G Obs
-
 /-- Invariance under the group of admissible transformations (Criterion 1's
 "`Q(o) = Q(g · o)` for all `g ∈ G`"). -/
 def GInvariant (Q : Obs → X) : Prop := ∀ (g : G) (o : Obs), Q (g • o) = Q o
 
-/-- Group-invariance coincides with invariance under the orbit relation. -/
+/-- Group-invariance coincides with invariance under the orbit relation. The
+operative setoid `orbitRel G Obs` (admissible transformations = the group
+action) is passed explicitly to the schematic `Invariant`, so no local
+instance or `set_option` is needed: the group case is a clean specialization. -/
 theorem ginvariant_iff_invariant (Q : Obs → X) :
-    GInvariant (G := G) Q ↔ Invariant Q := by
+    GInvariant (G := G) Q ↔ Invariant (s := orbitRel G Obs) Q := by
   constructor
   · intro h a b hab
     -- `hab : a ≈ b` is, definitionally, `a ∈ orbit G b` (`orbitRel_apply` is `Iff.rfl`).
@@ -265,10 +275,10 @@ theorem ginvariant_iff_invariant (Q : Obs → X) :
 
 /-- **Quotient Test for genuine symmetry groups.** A quantity is invariant
 under the admissible group action iff it descends to the orbit space
-`Obs / G`. -/
+`Obs / G` (i.e. the quotient by `orbitRel G Obs`). -/
 theorem quotientTest_group (Q : Obs → X) :
-    GInvariant (G := G) Q ↔ Descends Q :=
-  (ginvariant_iff_invariant Q).trans (quotientTest Q)
+    GInvariant (G := G) Q ↔ Descends (s := orbitRel G Obs) Q :=
+  (ginvariant_iff_invariant Q).trans (quotientTest (s := orbitRel G Obs) Q)
 
 end GroupAction
 
@@ -277,16 +287,21 @@ end GroupAction
 `I` is the OE-relevant invariant signature read off the structural quotient
 (`I` of §6.1: symmetry data, orbit-type complexity, `dim Aut(S)`, ...). The
 `S_min` regime of "maximal symmetry / no remaining OE-relevant distinctions"
-is modelled, in this first draft, by `I` being globally constant. (See
-CLAUDE_CODE_INSTRUCTIONS.md TODO for the order-theoretic `S_min` refinement.) -/
+is modelled here by the strong *endpoint* condition that `I` is globally
+constant. This is a toy limit, NOT a formalization of `S_min` itself: it omits
+the order `≻_I` on invariant signatures, descending chains, minimality, and
+automorphism growth. (See CLAUDE_CODE_INSTRUCTIONS.md §9.1 for the order-
+theoretic `S_min` refinement.) -/
 
 section Degeneration
 
 variable {Obs : Type*} [s : Setoid Obs] {Inv : Type*}
 
 /-- The invariant signature **collapses** when it cannot distinguish any two
-structural classes (the `S_min` regime: `Aut(S)` is `I`-maximal, the remaining
-distinctions are quotiented out). -/
+structural classes. This is a toy formal *endpoint* of the `S_min` discussion —
+the strong condition that `I` is globally constant (`Aut(S)` is `I`-maximal, the
+remaining distinctions are quotiented out) — not the full order-theoretic
+`S_min` of §6/§7. -/
 def Collapses (I : Str Obs → Inv) : Prop := ∀ x y : Str Obs, I x = I y
 
 /-- Under collapse, admissible base change in `Obs` induces no variation in the
@@ -367,27 +382,28 @@ variable {Obs : Type*} [s : Setoid Obs]
 variable (Phenomenal : Obs → Prop)
 
 /-- **Primitivism, OE-operative reading (premise, §3.1 + §6.3).**
-Phenomenality can differ between two perspectives that share a structural
-image — i.e. givenness can live in a fiber that `π` forgets. This is the
-formal counterpart of "phenomenality is not defined away in structural terms";
-the Ontological Closure Principle (§3.3) is what licenses reading primitivism
-this way and blocks re-identifying the fiber-local remainder with a structural
-rearrangement. -/
-def PhenomenalIsFiberLocal : Prop :=
-  ∃ o₁ o₂ : Obs, proj o₁ = proj o₂ ∧ (Phenomenal o₁ ↔ ¬ Phenomenal o₂)
+Phenomenality is *not constant on the fibers of* `π`: some two perspectives that
+share a structural image are assigned different phenomenal verdicts. This is the
+neutral fiber-local reading — it asserts only that phenomenality is not a
+structural function of the perspective (givenness can live in a fiber that `π`
+forgets), NOT the stronger claim that one fiber-mate is phenomenal while the
+other is bare. The Ontological Closure Principle (§3.3) is what licenses reading
+primitivism this way and blocks re-identifying the fiber-local remainder with a
+structural rearrangement.
 
-/-- The fiber-locality premise makes `Phenomenal` a fiber-separating quantity:
-it supplies two fiber-mates `o₁, o₂` whose phenomenal verdicts are forced to
-differ. This is the *only* place the metaphysical premise does work; the no-go
-conclusion is then read off the general core lemma. -/
+Definitionally this premise *is* `SeparatesAFiber Phenomenal`; stating it in
+phenomenal vocabulary keeps the metaphysical commitment legible and separate
+from the domain-neutral core. -/
+def PhenomenalIsFiberLocal : Prop :=
+  ∃ o₁ o₂ : Obs, proj o₁ = proj o₂ ∧ Phenomenal o₁ ≠ Phenomenal o₂
+
+/-- The fiber-locality premise *is* a fiber separation for `Phenomenal` (the two
+definitions are syntactically the same `∃`, only the vocabulary differs). This
+is the single, named place where the metaphysical premise does any work; every
+downstream step is the domain-neutral descent core. -/
 theorem separates_of_phenomenalIsFiberLocal
     (h : PhenomenalIsFiberLocal Phenomenal) :
-    SeparatesAFiber Phenomenal := by
-  obtain ⟨o₁, o₂, hpr, hiff⟩ := h
-  refine ⟨o₁, o₂, hpr, ?_⟩
-  intro heq
-  rw [heq] at hiff
-  exact iff_not_self hiff
+    SeparatesAFiber Phenomenal := h
 
 /-- **Limit of structure ≠ limit of actuality (conditional, §6.3).**
 GIVEN that phenomenality is fiber-local, the predicate `Phenomenal` does not
@@ -426,7 +442,9 @@ Verified results of this audit (Lean 4.30.0, Mathlib `v4.30.0`):
   `quotientTest_group` (also pulls classical group-theory machinery)
                                        →  `[propext, Classical.choice, Quot.sound]`
 
-§8.3 Metaphysical conditional layer — kept constructive via `iff_not_self`:
+§8.3 Metaphysical conditional layer — constructive: the premise is definitionally
+  `SeparatesAFiber Phenomenal` (so the bridge lemma is `:= h`), and the no-go is a
+  direct specialization of the axiom-free `no_factor_of_separates`:
   `separates_of_phenomenalIsFiberLocal`, `phenomenal_not_structural`
                                        →  no axioms at all. -/
 
